@@ -1,0 +1,303 @@
+package com.certificate;
+
+
+import com.certificate.JDBCSingleton;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import javax.mail.Message;
+import javax.mail.MessagingException;
+import javax.mail.Session;
+import javax.mail.Transport;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.TimeUnit;
+
+
+
+public class MainClass1  {
+	
+	public static void certificateChecker(){
+		//List<String> URLArray = new ArrayList<String>();
+		Map<String,List<String>> URL_map=new LinkedHashMap<String,List<String>>();
+		URL_map=JDBCSingleton.MappingOfUrl();
+		System.out.println("Map"+URL_map);
+			URL url;
+			//StringBuffer sb=new StringBuffer();
+				try {
+					//StringBuffer s=new StringBuffer(); 
+					for (String url_value : URL_map.keySet()) {
+						url = new URL(url_value);
+						StringBuffer s=GetCertificateExpiry(url);
+						if(!(s.toString()).isEmpty())
+						{
+							
+						List<String> emailid=new ArrayList<String>();
+							emailid.addAll(URL_map.get(url_value));
+							//sb.append(s);
+							
+								 
+								 
+								 boolean flag=JDBCSingleton.getDetailsFromActivityTable(url_value);
+								 //get count from activity table for given URL
+								 //check if it is <10 if yes -----insert statement(activity table) url,flag(incremental)++
+								 //                      no  -------reset count flag to 0 in activity table and send mail
+								 if(flag==true){
+									 System.out.println("****Sending mail...****");
+									 System.out.println("Mail content"+s.toString());
+									 System.out.println("to id"+emailid.toString());
+									 sendMail(s.toString(),emailid);
+									//insert statement(tracker table) url,mailid,date
+									JDBCSingleton.insertIntoTrackerTable(url_value,emailid);	
+								 }
+								 else{
+									 System.out.println("****count updated but not sending mail****");
+								 }
+								
+						}
+					}
+					
+					
+		
+			
+		} catch (MalformedURLException e1) {
+			
+			System.out.println("Incorrect URL");
+		} catch (ClassCastException e1) {
+			
+			System.out.println("No SSL Certificate available");
+		} catch (IOException  e1) {
+			
+			System.out.println("The connection couldn't be established or Incorrect URL");
+			
+		}
+		  catch (Exception e1) {
+			
+		}
+	}
+	public static void main(String[] args) {
+		
+		//System.setProperty("java.net.useSystemProxies", "true");
+		
+		certificateChecker();
+		
+		
+	}
+
+	public static StringBuffer GetCertificateExpiry(URL url) throws Exception {
+
+		// configure the SSLContext with a TrustManager
+		StringBuffer sb=new StringBuffer();
+		SSLContext ctx = SSLContext.getInstance("TLS");
+		ctx.init(new KeyManager[0],
+				new TrustManager[] { new DefaultTrustManager() },
+				new SecureRandom());
+		SSLContext.setDefault(ctx);
+
+		
+		HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
+		conn.setHostnameVerifier(new HostnameVerifier() {
+			@Override
+			public boolean verify(String arg0, SSLSession arg1) {
+				return true;
+			}
+		});
+		conn.getResponseCode();
+		//System.out.println("HttpsURLConnectionResponseCode:  "+conn.getResponseCode());
+Calendar cal= Calendar.getInstance();
+java.util.Date currdate=cal.getTime();
+
+long d1 = currdate.getTime();
+		
+		System.out.println("Current date and time:  "+currdate);
+	
+
+		X509Certificate[] certs = (X509Certificate[]) conn.getServerCertificates();
+		
+		for (X509Certificate cert : certs) {
+			
+		
+			System.out.println("Certificate Valid From:  "
+					+ ((X509Certificate) cert).getNotBefore());
+			System.out.println("Certificate Valid Until:  "
+					+ ((X509Certificate) cert).getNotAfter());
+
+			Date convert = ((X509Certificate) cert).getNotAfter();
+			long d2= convert.getTime();
+			long d3=d2-d1;
+			System.out.println();
+			System.out.println("Days to expire: "+TimeUnit.MILLISECONDS.toDays(d3)); 
+			if (TimeUnit.MILLISECONDS.toDays(d3)<90)
+			{
+				
+				System.out.println("Certificate will expire in "+TimeUnit.MILLISECONDS.toDays(d3)+" days. Time to change it");
+				sb.append("\n\nVorwerk URL "+url+"\n");
+				sb.append("Certificate Valid From:  "+cert.getNotBefore()+"\n");
+				sb.append("Certificate Valid Until:  "+cert.getNotAfter()+"\n");
+				sb.append("Certificate will expire in "+TimeUnit.MILLISECONDS.toDays(d3)+"\n");
+				
+			}
+			else
+				{};
+				
+			
+			System.out.println("________________________________________________");
+			return sb;
+			//break;
+		}
+
+		conn.disconnect();
+return sb;
+	}
+
+	private static class DefaultTrustManager implements X509TrustManager {
+
+		@Override
+		public void checkClientTrusted(X509Certificate[] arg0, String arg1)
+				throws CertificateException {
+		}
+
+		@Override
+		public void checkServerTrusted(X509Certificate[] arg0, String arg1)
+				throws CertificateException {
+		}
+
+		@Override
+		public X509Certificate[] getAcceptedIssuers() {
+			return null;
+		}
+	}
+	 public static void sendMail(String sb,List<String> emailid) {
+		 System.out.println("Sending Mail....");
+	      // Recipient's email ID needs to be mentioned.
+	     // String to = "pratiklib16@gmail.com";//change accordingly
+		 StringBuffer sb_id=new StringBuffer();
+         ListIterator<String> itr1=emailid.listIterator(); 
+			 for(String s1 : emailid) { 
+				 sb_id.append(s1);
+			  }
+	      // Sender's email ID needs to be mentioned
+	      String from = "pratiklib16@gmail.com";//change accordingly
+	    
+	      String host = "relay.emea.vorwerk.org";// smtp server
+
+	      Properties props = new Properties();
+	     // props.put("mail.smtp.auth", "true");
+	      props.put("mail.smtp.starttls.enable", "true");
+	      props.put("mail.smtp.host", host);
+	      props.put("mail.smtp.port", "25");
+	      Session session = Session.getInstance(props);
+	     
+	     
+
+	      try {
+	         // Create a default MimeMessage object.
+	         Message message = new MimeMessage(session);
+
+	         // Set From: header field of the header.
+	         message.setFrom(new InternetAddress(from));
+
+	         // Set To: header field of the header.
+	         message.setRecipients(Message.RecipientType.TO,InternetAddress.parse(emailid.get(0)));
+	         message.setRecipients(Message.RecipientType.CC, InternetAddress.parse(emailid.get(1)));
+	         // Set Subject: header field
+	         message.setSubject("SSL Certificate About To Expire In 90 Days");
+
+	         // Now set the actual message
+	         message.setText(sb);
+
+	         // Send message
+	         Transport.send(message);
+
+	         System.out.println("Sent message successfully....");
+
+	      } catch (MessagingException e) {
+	    	  System.out.println("error "+e);
+	            throw new RuntimeException(e);
+	      }
+	   }
+public static StringBuffer GetCertificateExpiry(URL url) throws Exception {
+
+		// configure the SSLContext with a TrustManager
+		StringBuffer sb=new StringBuffer();
+		SSLContext ctx = SSLContext.getInstance("TLS");
+		ctx.init(new KeyManager[0],
+				new TrustManager[] { new DefaultTrustManager() },
+				new SecureRandom());
+		SSLContext.setDefault(ctx);
+
+		
+		HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
+		conn.setHostnameVerifier(new HostnameVerifier() {
+			@Override
+			public boolean verify(String arg0, SSLSession arg1) {
+				return true;
+			}
+		});
+		conn.getResponseCode();
+		//System.out.println("HttpsURLConnectionResponseCode:  "+conn.getResponseCode());
+Calendar cal= Calendar.getInstance();
+java.util.Date currdate=cal.getTime();
+
+long d1 = currdate.getTime();
+		
+		System.out.println("Current date and time:  "+currdate);
+	
+
+		X509Certificate[] certs = (X509Certificate[]) conn.getServerCertificates();
+		
+		for (X509Certificate cert : certs) {
+			
+		
+			System.out.println("Certificate Valid From:  "
+					+ ((X509Certificate) cert).getNotBefore());
+			System.out.println("Certificate Valid Until:  "
+					+ ((X509Certificate) cert).getNotAfter());
+
+			Date convert = ((X509Certificate) cert).getNotAfter();
+			long d2= convert.getTime();
+			long d3=d2-d1;
+			System.out.println();
+			System.out.println("Days to expire: "+TimeUnit.MILLISECONDS.toDays(d3)); 
+			if (TimeUnit.MILLISECONDS.toDays(d3)<90)
+			{
+				
+				System.out.println("Certificate will expire in "+TimeUnit.MILLISECONDS.toDays(d3)+" days. Time to change it");
+				sb.append("\n\nVorwerk URL "+url+"\n");
+				sb.append("Certificate Valid From:  "+cert.getNotBefore()+"\n");
+				sb.append("Certificate Valid Until:  "+cert.getNotAfter()+"\n");
+				sb.append("Certificate will expire in "+TimeUnit.MILLISECONDS.toDays(d3)+"\n");
+				
+			}
+			else
+				{};
+				
+			
+			System.out.println("________________________________________________");
+			return sb;
+			//break;
+		}
+
+		conn.disconnect();
+return sb;
+	}
+}
